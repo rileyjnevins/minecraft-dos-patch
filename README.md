@@ -8,7 +8,8 @@ Goals:
 - Create patches for various panels.
   - Pterodactyl
   - Multicraft
-- Support for various linux distros. 
+- Support for various linux distros.
+- Create signatures of identified plugins for protective scanning. 
 
 ## What is the root issue?
 Often times, the software hosting providers use rely on docker for containerization. This results in a virtual interface being created for each "server", which has access to the physical devices full internet capacity. This allows the bad actor(s) to send bulk traffic to a remote victim host.

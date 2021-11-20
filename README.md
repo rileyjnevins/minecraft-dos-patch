@@ -3,6 +3,13 @@
 # Minecraft Host DoS Botnet Patches
 > Patches that prevent malicious Minecraft plugins from saturating host internet resources for DDoS. In recent events, Minecraft servers (containerized using services like Multicraft or Pterodactyl) have been used to conduct attacks as part of a botnet.
 
+Goals:
+- Create host-specific patches.
+- Create patches for various panels.
+  - Pterodactyl
+  - Multicraft
+- Support for various linux distros. 
+
 ## What is the root issue?
 Often times, the software hosting providers use rely on docker for containerization. This results in a virtual interface being created for each "server", which has access to the physical devices full internet capacity. This allows the bad actor(s) to send bulk traffic to a remote victim host.
 

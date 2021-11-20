@@ -1,3 +1,5 @@
+![Malicious Plugin](https://rileynevins.com/portfolio/imgs/electronode_script.PNG)
+
 # Minecraft Host DoS Botnet Patches
 > Patches that prevent malicious Minecraft plugins from saturating host internet resources for DDoS. In recent events, Minecraft servers (containerized using services like Multicraft or Pterodactyl) have been used to conduct attacks as part of a botnet.
 

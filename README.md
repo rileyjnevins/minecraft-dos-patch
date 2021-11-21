@@ -6,9 +6,9 @@
 ## Goals:
 - Create host-specific patches.
 - Create patches for various panels.
-  - Pterodactyl
-  - Multicraft
-  - WISP
+  * Pterodactyl
+  * Multicraft
+  * WISP
 - Support for various linux distros.
 - Create signatures of identified plugins for protective scanning.
 

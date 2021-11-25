@@ -5,7 +5,7 @@
 
 ## Goals:
 - Create patches for various panels.
-  - Pterodactyl
+  - ![Pterodactyl](https://github.com/rileyjnevins/minecraft-dos-patch/tree/main/panel-variations/pterodactyl)
   - Multicraft
   - WISP
 - Support for various linux distros.

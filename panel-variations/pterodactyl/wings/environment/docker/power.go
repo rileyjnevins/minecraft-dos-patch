@@ -2,7 +2,7 @@ package docker
 
 import (
 	"context"
-	"net"
+	"github.com/florianl/go-tc"
 	"os"
 	"strings"
 	"syscall"
@@ -13,10 +13,6 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/florianl/go-tc"
-	"github.com/vishvananda/netlink"
-	"golang.org/x/sys/unix"
-
 	"github.com/pterodactyl/wings/environment"
 	"github.com/pterodactyl/wings/remote"
 )
@@ -83,6 +79,10 @@ func (e *Environment) Start(ctx context.Context) error {
 		// If the server is running update our internal state and continue on with the attach.
 		if c.State.Running {
 			e.SetState(environment.ProcessRunningState)
+			err = e.ApplyBandwidthLimit()
+			if err != nil {
+				e.log().WithField("error", err).Warn("environment/docker: failed to initialize bandwidth limit on container")
+			}
 			return e.Attach(ctx)
 		}
 
@@ -120,32 +120,77 @@ func (e *Environment) Start(ctx context.Context) error {
 
 	// No errors, good to continue through.
 	sawError = false
+	err := e.ApplyBandwidthLimit()
+	if err != nil {
+		e.log().WithField("error", err).Warn("environment/docker: failed to initialize bandwidth limit on container")
+	}
 	return e.Attach(actx)
 }
 
-
-// GetContainerNetInterface returns the interface index of the interface with the given
-// network namespace ID.
-func (e *Environment) GetContainerNetInterface(nsid int) (int, error) {
-	// Get a list of all network interfaces to later retrieve and compare their ns IDs
-	ifaces, err := net.Interfaces()
+// ApplyBandwidthLimit initializes the traffic control limits on this container. It does so by creating
+// 2 token bucket filters (TBF) that will run on the container's veth interface to limit traffic to this container.
+// Due to how the routing for virtual ethernet (veth) interfaces work with docker, the ingress traffic becomes
+// egress traffic on the veth interface. This means that to limit ingress traffic to the container, we will
+// need to apply a TBF on the outbound/egress side of the veth interface and to apply a limit on the egress
+// traffic from the container, we will need to apply a TBF on the inbound/ingress side of the veth interface.
+func (e *Environment) ApplyBandwidthLimit() error {
+	iface, err := e.ContainerNetInterface()
 	if err != nil {
-		return -1, errors.WrapIf(err, "error while getting all network interfaces")
+		return errors.WrapIf(err, "environment/docker: failed to lookup interface with corresponding ns ID")
 	}
 
-	for _, iface := range ifaces {
-		ifaceLink, err := netlink.LinkByName(iface.Name)
-		if err != nil {
-			e.log().WithField("error", err).Debug("error while getting link for interface " + iface.Name)
-			continue
-		}
-
-		// The interfaces match, return the current iface index
-		if ifaceLink.Attrs().NetNsID == nsid {
-			return ifaceLink.Attrs().Index, nil
-		}
+	control, err := tc.Open(&tc.Config{})
+	if err != nil {
+		return errors.WrapIf(err, "environment/docker: failed to open new traffic control object")
 	}
-	return -1, errors.WrapIf(err, "could not find network interface")
+
+	// Comments added for clarification
+
+	// Conversion from KBps to Bps then divided by 125 as having a burst size that is 125x smaller than the
+	// rate seems like the general rule of thumb as seen in the tc manpages.
+	ingressBurst := (e.Configuration.Limits().IngressLimit * 1000) / 125
+	ingressTbf := &tc.Object{
+		Msg: tc.Msg{
+			Handle: 0,
+			Ifindex: uint32(iface.Attrs().Index),
+			Parent: tc.HandleRoot, // Means that this Qdisc is the child of root (root being the egress handle).
+		},
+		Attribute: tc.Attribute{
+			Kind: "tbf",
+			Tbf: &tc.Tbf{
+				Burst: &ingressBurst, // Not sure why this has to be a pointer.
+				Parms: &tc.TbfQopt{
+					Rate: tc.RateSpec{
+						Rate: e.Configuration.Limits().IngressLimit * 1000, // Ingress limit per second
+					},
+					// Limit is a bit complicated, I thought it represented the maximum number of tokens that can be
+					// assigned. But, it seems this value gets converted into time values instead? Anyways, it seems
+					// that 500 represents 1 millisecond, so I've left it as 5mil since that would equate to 10 seconds.
+					// Which I believe means that, if a packet is not assigned a token within 10 seconds, the packet
+					// gets dropped. Which should be reasonable as that would mean you would be getting 10k ping anyway.
+					// 500 * miliseconds = time in miliseconds
+					Limit: 5000000,
+				},
+			},
+		},
+	}
+
+	err = control.Qdisc().Add(ingressTbf)
+	if err != nil {
+		return errors.WrapIf(err, "environment/docker: failed to add token bucket filter on ingress traffic")
+	}
+
+	egressBurst := (e.Configuration.Limits().EgressLimit * 1000) / 125
+	egressTbf := ingressTbf
+	egressTbf.Parent = tc.HandleIngress // EgressTbf uses the Ingress handle due to veth + docker networking
+	egressTbf.Tbf.Burst = &egressBurst
+	egressTbf.Tbf.Parms.Rate.Rate = e.Configuration.Limits().EgressLimit * 1000
+
+	err = control.Qdisc().Add(egressTbf)
+	if err != nil {
+		return errors.WrapIf(err, "environment/docker: failed to add token bucket filter on egress traffic")
+	}
+	return nil
 }
 
 // Stop stops the container that the server is running in. This will allow up to

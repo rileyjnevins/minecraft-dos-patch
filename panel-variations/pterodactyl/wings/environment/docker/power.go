@@ -175,9 +175,11 @@ func (e *Environment) ApplyBandwidthLimit() error {
 		},
 	}
 
-	err = control.Qdisc().Add(ingressTbf)
-	if err != nil {
-		return errors.WrapIf(err, "environment/docker: failed to add token bucket filter on ingress traffic")
+	if e.Configuration.Limits().IngressLimit > 0 {
+		err = control.Qdisc().Add(ingressTbf)
+		if err != nil {
+			return errors.WrapIf(err, "environment/docker: failed to add token bucket filter on ingress traffic")
+		}
 	}
 
 	egressBurst := (e.Configuration.Limits().EgressLimit * 1000) / 125
@@ -186,10 +188,13 @@ func (e *Environment) ApplyBandwidthLimit() error {
 	egressTbf.Tbf.Burst = &egressBurst
 	egressTbf.Tbf.Parms.Rate.Rate = e.Configuration.Limits().EgressLimit * 1000
 
-	err = control.Qdisc().Add(egressTbf)
-	if err != nil {
-		return errors.WrapIf(err, "environment/docker: failed to add token bucket filter on egress traffic")
+	if e.Configuration.Limits().EgressLimit > 0 {
+		err = control.Qdisc().Add(egressTbf)
+		if err != nil {
+			return errors.WrapIf(err, "environment/docker: failed to add token bucket filter on egress traffic")
+		}
 	}
+
 	return nil
 }
 
